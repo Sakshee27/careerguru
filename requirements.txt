@@ -1,0 +1,8 @@
+streamlit
+google-genai
+python-dotenv
+PyPDF2
+altair
+pandas
+psycopg2-binary
+bcrypt
