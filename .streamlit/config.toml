@@ -8,3 +8,7 @@ font = "sans serif"
 
 [server]
 runOnSave = true
+
+[client]
+# Hide Streamlit's own top-right hamburger/toolbar for a clean, app-like look
+toolbarMode = "minimal"
