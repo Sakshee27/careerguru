@@ -23,6 +23,7 @@ except Exception:
 
 from demo_data import DEMO
 import db
+import ml_insights
 
 try:
     import altair as alt
@@ -139,7 +140,8 @@ def score_color(v):
 # ----------------------------------------------------------------------------
 PROMPTS = {
     "review": "You are an experienced Technical HR Manager. Review the resume against the job description. "
-              "Use Markdown with: ## Overall Verdict, ## Key Strengths, ## Gaps & Weaknesses, ## Recommendations to Improve. Be specific.",
+              "Use Markdown with: ## Overall Verdict, ## Key Strengths, ## Gaps & Weaknesses, ## Recommendations to Improve. "
+              "Be concise: Overall Verdict in 1-2 sentences; at most 3 short bullets per other section. Be specific, no filler.",
     "roles": 'You are a career advisor. Return ONLY valid JSON: {"candidate_summary":"...","recommended_roles":'
              '[{"role":"...","justification":"...","expected_ctc_inr":"6-8 LPA"}]}. 3-5 roles, India salary ranges.',
     "dashboard": 'ATS scanner. Return ONLY valid JSON: {"overall_match":<0-100>,"subscores":{"keywords":<0-100>,'
@@ -534,6 +536,28 @@ st.markdown(
     .faq-a{ color:#C7CBD6; font-size:0.92rem; margin-top:0.7rem; line-height:1.65; }
     @media (max-width:820px){ .dp-grid{ grid-template-columns:1fr; } .dp-steps{ grid-template-columns:1fr; } }
 
+    /* Instant Insights (ML tab) */
+    .ml-pill{ font-size:0.62rem; font-weight:700; letter-spacing:0.08em; color:#fff; text-transform:uppercase;
+        background:linear-gradient(90deg,#7C3AED,#A78BFA); padding:4px 11px; border-radius:99px;
+        box-shadow:0 4px 10px rgba(124,58,237,0.3); vertical-align:middle; }
+    .ml-hint{ display:flex; align-items:center; gap:8px; margin-top:0.8rem; color:#6B7280; font-size:0.9rem;
+        background:rgba(124,58,237,0.07); border:1px dashed rgba(124,58,237,0.35); border-radius:12px;
+        padding:0.6rem 0.9rem; }
+    .ml-hint .mi{ color:#7C3AED; }
+    .ml-foot{ display:flex; align-items:center; justify-content:center; gap:7px; color:#9CA3AF;
+        font-size:0.82rem; margin-top:1.1rem; }
+    .ml-foot .mi{ color:#10B981; font-size:1rem; }
+    .ck-row{ display:flex; align-items:flex-start; gap:10px; padding:0.5rem 0; border-bottom:1px solid #F1F2F6; }
+    .ck-row:last-child{ border-bottom:none; }
+    .ck-row .mi{ font-size:1.25rem; margin-top:2px; }
+    .ck-t{ font-family:'Sora',sans-serif; font-weight:600; color:#111827; font-size:0.92rem; }
+    .ck-d{ color:#6B7280; font-size:0.84rem; line-height:1.45; }
+    .mlcat{ font-family:'Sora',sans-serif; font-weight:700; font-size:0.72rem; text-transform:uppercase;
+        letter-spacing:0.08em; color:#64748B; margin:0.7rem 0 0.25rem; }
+    .chip-extra{ background:rgba(124,58,237,0.10); color:#6D28D9; border:1px solid rgba(124,58,237,0.28); }
+    .st-key-rc_mltracks .sub-name{ width:190px; }
+    .st-key-rc_mltracks, .st-key-rc_mlhealth{ min-height:380px !important; }
+
     /* Fluid, zoom-out responsive scaling */
     .h1{ font-size:clamp(2.1rem, 4.6vw, 3.6rem) !important; }
     .lede{ font-size:clamp(0.96rem, 1.35vw, 1.1rem) !important; }
@@ -562,6 +586,7 @@ def clear_results():
         st.session_state.pop(f"res_{k}", None)
     st.session_state.pop("demo_active", None)
     st.session_state.pop("demo_name", None)
+    st.session_state.pop("_ml_cache", None)
 
 
 def set_collapsed(value):
@@ -676,14 +701,19 @@ def render_dashboard(text, pdf_text):
     subs = data.get("subscores", {}) or {}
     yrs = data.get("years_experience", "—")
 
+    # Local ML resume-health (independent of the JD).
+    health = ml_insights.resume_quality(pdf_text) if pdf_text else None
+
     # ---- KPI cards ----
     kpis = [
-        ("trophy", "Overall Match", f"{overall}%", score_color(overall)),
+        ("trophy", "ATS Score", f"{overall}%", score_color(overall)),
+        ("ecg_heart", "Resume Health", f"{health['score']}%" if health else "—",
+         score_color(health["score"]) if health else "#9CA3AF"),
         ("check_circle", "Matched", str(len(matched)), "#10B981"),
         ("cancel", "Missing", str(len(missing)), "#EF4444"),
         ("work_history", "Experience", f"{yrs} yrs", "#7C3AED"),
     ]
-    cols = st.columns(4)
+    cols = st.columns(5)
     for col, (ic, label, val, color) in zip(cols, kpis):
         col.markdown(
             f'<div class="kpi"><div class="kpi-n" style="color:{color};">{val}</div>'
@@ -756,8 +786,24 @@ def render_dashboard(text, pdf_text):
         else:
             st.write(f"Matched {m} · Missing {n}")
 
+    # Bonus skills you bring — resume skills the JD doesn't ask for (local ML),
+    # de-duped against keywords the AI already counted as matched.
+    bonus = []
+    jd_text = st.session_state.get("jd_text", "")
+    if pdf_text and jd_text.strip():
+        try:
+            extra = ml_insights.skill_gap(pdf_text, jd_text).get("extra", {})
+            seen = {str(x).strip().lower() for x in matched}
+            for v in extra.values():
+                for s in v:
+                    if s.lower() not in seen:
+                        seen.add(s.lower())
+                        bonus.append(s)
+        except Exception:
+            bonus = []
+
     st.write("")
-    if matched or missing:
+    if matched or missing or bonus:
         with st.container(border=True, key="rc_keywords"):
             st.markdown('<div class="report-h"><span class="mi">label</span>Keyword Breakdown</div>', unsafe_allow_html=True)
             if matched:
@@ -766,6 +812,23 @@ def render_dashboard(text, pdf_text):
             if missing:
                 st.markdown('<div class="kw-sub kw-sub-miss"><span class="mi">cancel</span>Missing</div>', unsafe_allow_html=True)
                 st.markdown("".join(f'<span class="chip chip-miss">{html.escape(str(x))}</span>' for x in missing), unsafe_allow_html=True)
+            if bonus:
+                st.markdown('<div class="kw-sub" style="color:#6D28D9;"><span class="mi" style="color:#7C3AED;">'
+                            'add_circle</span>Bonus Skills You Bring</div>', unsafe_allow_html=True)
+                st.markdown("".join(f'<span class="chip chip-extra">{html.escape(str(x))}</span>' for x in bonus), unsafe_allow_html=True)
+
+    # ---- Resume Health Check (local ML, JD-independent) ----
+    if health:
+        st.write("")
+        with st.container(border=True, key="rc_dashhealth"):
+            st.markdown('<div class="report-h"><span class="mi">ecg_heart</span>Resume Health Check</div>',
+                        unsafe_allow_html=True)
+            for c in health["checks"]:
+                ic, color = _CK_ICON[c["status"]]
+                st.markdown(
+                    f'<div class="ck-row"><span class="mi" style="color:{color};">{ic}</span>'
+                    f'<div><div class="ck-t">{html.escape(c["label"])}</div>'
+                    f'<div class="ck-d">{html.escape(c["detail"])}</div></div></div>', unsafe_allow_html=True)
 
     # Inline-highlighted resume (merged from the old Keyword Highlighter)
     if pdf_text and matched:
@@ -802,6 +865,10 @@ def render_interview(text, pdf_text):
 
 RENDERERS = {"review": render_review, "roles": render_roles, "dashboard": render_dashboard,
              "cover": render_cover, "interview": render_interview}
+
+
+# Pass/warn/fail icon + colour for the Resume Health Check rows (Match Dashboard).
+_CK_ICON = {"pass": ("check_circle", "#10B981"), "warn": ("error", "#F59E0B"), "fail": ("cancel", "#EF4444")}
 
 
 # Apply any pending JD (from dummy-data load) BEFORE the JD widget is created
@@ -1019,7 +1086,7 @@ def render_landing():
     # ---- Stats strip ----
     st.markdown('<div class="lp-section"></div>', unsafe_allow_html=True)
     cs = st.columns(4)
-    for col, (n, l) in zip(cs, [("5", "AI tools"), ("Claude", "Opus model"), ("Seconds", "to results"), ("ATS", "optimised")]):
+    for col, (n, l) in zip(cs, [("5", "Smart tools"), ("Gemini", "2.5 Flash"), ("Seconds", "to results"), ("ATS", "optimised")]):
         col.markdown(f'<div class="statbox"><div class="n">{n}</div><div class="l">{l}</div></div>', unsafe_allow_html=True)
 
     # ---- Value section (dark panel) ----
@@ -1036,7 +1103,7 @@ def render_landing():
         f'<div class="dp-h2" style="text-align:left;">A coach that reads your resume like a recruiter</div>'
         f'<div class="dp-sub" style="text-align:left;margin:0;max-width:none;">Most checkers stop at typos and '
         f'formatting. CareerGuru understands the role you\'re targeting — it scores how well you match, surfaces the '
-        f'exact skills and keywords you\'re missing, and tells you how to fix them. Powered by Anthropic\'s Claude, it '
+        f'exact skills and keywords you\'re missing, and tells you how to fix them. Powered by Google\'s Gemini 2.5 Flash, it '
         f'goes further and drafts a tailored cover letter and your interview prep.</div></div>'
         f'<div class="dp-card">{val_rows}</div></div></div>', unsafe_allow_html=True)
 
@@ -1067,7 +1134,7 @@ def render_landing():
     faqs = [
         ("Is CareerGuru free to use?",
          "You can preview every tool with built-in sample data for free. Running an analysis on your own resume uses "
-         "Anthropic's Claude API, which requires an API key with credits."),
+         "Google's Gemini API, which requires an API key with credits."),
         ("Is my resume data safe?",
          "Your resume is used only to generate your analysis. It isn't sold or shared, and nothing is stored beyond your session."),
         ("What file types are supported?",
@@ -1075,7 +1142,9 @@ def render_landing():
         ("Does it work for any job?",
          "Yes. Paste any job description and CareerGuru scores your fit against that specific role and its keywords."),
         ("Which AI powers CareerGuru?",
-         "Anthropic's Claude (Opus). It reads and evaluates your resume, and writes your cover letter and interview prep."),
+         "Google's Gemini 2.5 Flash for prompt-driven analysis (resume review, cover letter, interview prep), plus a "
+         "local scikit-learn engine for the instant resume-health and skill checks. It reads and evaluates your resume, "
+         "and writes your cover letter and interview prep."),
     ]
     faq_html = "".join(
         f'<details class="faq-item"><summary>{html.escape(q)}</summary><div class="faq-a">{html.escape(a)}</div></details>'

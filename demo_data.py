@@ -50,21 +50,19 @@ PERFECT = {
     "jd": JD,
     "resume": PERFECT_RESUME,
     "review": """## Overall Verdict
-A near-ideal candidate for this role — the resume covers virtually every requirement with strong, quantified backend experience.
+A near-ideal fit — covers nearly every requirement with strong, quantified backend experience.
 
 ## Key Strengths
-- **Directly relevant stack**: Python, FastAPI, Django, REST APIs, and microservices map 1:1 to the JD.
-- **Cloud & DevOps depth**: hands-on AWS (EC2/S3/Lambda/EKS), Docker, Kubernetes, CI/CD, Terraform.
-- **Impressive, quantified impact**: "20M+ API calls/day at p99 < 80ms" and "cut deploy time 60%".
-- **Bonus tech covered**: Kafka, Terraform, and observability (Prometheus, Grafana).
+- **Stack matches 1:1**: Python, FastAPI, Django, REST APIs, microservices.
+- **Cloud & DevOps depth**: AWS, Docker, Kubernetes, CI/CD, Terraform.
+- **Quantified impact**: "20M+ API calls/day at p99 < 80ms", "cut deploy time 60%".
 
 ## Gaps & Weaknesses
-- The JD mentions **Go** as an alternative to Python — not on the resume (minor; Python satisfies the core need).
-- No explicit mention of **Datadog**, though Prometheus/Grafana cover observability.
+- **Go** (a JD alternative to Python) isn't listed — minor, since Python covers it.
 
 ## Recommendations to Improve
-- Add a one-line note on any Go exposure, even small.
-- Lead the summary with the strongest metric for instant ATS impact.
+- Add a one-line note on any Go exposure.
+- Lead the summary with your strongest metric.
 """,
     "roles": {
         "candidate_summary": "Senior backend engineer with deep Python/cloud expertise and proven scale (20M+ calls/day). Strong fit for senior platform and backend roles.",
